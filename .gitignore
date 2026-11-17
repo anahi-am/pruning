@@ -221,3 +221,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+notebooks/
+
+# Model checkpoints
+*.pt
+
+# uv virtual environment (uv.lock and pyproject.toml stay tracked)
+.venv/
