@@ -17,7 +17,7 @@ uv add ultralytics torch torchvision
 from src.pruner import prune
 from ultralytics import YOLO
 
-model = YOLO("yolo11n.pt")
+model = YOLO("yolo26n.pt")
 pruned = prune(model, ratio=0.3, method="magnitude", finetune=True, data="coco128.yaml")
 ```
 
