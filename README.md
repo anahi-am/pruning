@@ -41,10 +41,6 @@ pruning/
 
 ## Benchmarks
 
-| Sparsity | Model | mAP before | mAP after | Speedup |
-| 0% | YOLO26n | - | - |
-| 30% | YOLO26n-pruned | - | - | - |
-
 See docs/metrics.md for detailed experimental logs
 
 ## Reproducing Results
