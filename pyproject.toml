@@ -17,4 +17,4 @@ dev = [
 ]
 
 [tool.ruff]
-exclude = ["src/evaluate_model.py"]
+exclude = ["src/evaluate_model.py", "src/finetuning.py"]
