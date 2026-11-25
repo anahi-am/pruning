@@ -32,20 +32,8 @@ def prune_yolo_model(
         raise ValueError("Model backbone is not loaded or is invalid")
 
     graph = DependencyGraph()
-
-    raw_masks = generate_pruning_masks(model, ratio, graph)
-
-    final_masks = {}
-    for layer_idx_str, mask in raw_masks.items():
-        try:
-            layer_idx = int(layer_idx_str)
-            conv_names = get_conv_names_for_layer(model, layer_idx)
-            for conv_name in conv_names:
-                final_masks[conv_name] = mask
-        except ValueError:
-            continue
-
-    apply_masks(model.model, final_masks)
+    masks = generate_pruning_masks(model, ratio, graph)
+    apply_masks(model.model, masks)
 
     model.save(output_path)
     print(f"Pruned model saved to {output_path}")
