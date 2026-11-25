@@ -45,8 +45,11 @@ See docs/metrics.md for detailed experimental logs
 
 ## Reproducing Results
 
-To reproduce the full COCO validation metrics, use the provided evaluation script in Google Colab:
-- Upload to Drive: Upload your entire project folder to the root of your Google Drive
-- Open in Colab: Create a new notebook or open src/evaluate_model.py directly in Colab 
-- Update Path: In the first code cell, update PROJECT_FOLDER_NAME to match your folder's name in Drive
-- Run All Cells: The script will mount your Drive, navigate to the project, and run the full COCO validation on both the original and pruned models
+Run the evaluation in Google Colab against COCO val2017:
+
+1. Open a new Colab notebook with a T4 GPU runtime
+2. Paste the contents of `src/evaluate_model.py` and run all cells
+
+The script pulls the original model from Ultralytics and the pruned checkpoint
+from [Anahia/yolo26n_pruned](https://huggingface.co/Anahia/yolo26n_pruned) automatically.
+No manual uploads required.

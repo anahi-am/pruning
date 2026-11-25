@@ -1,71 +1,71 @@
-# %% [markdown]
-## Setup and Dependencies
-
 # %%
-!pip install ultralytics
+!pip install ultralytics huggingface_hub
 
-from google.colab import drive
-drive.mount('/content/drive')
-
+from huggingface_hub import hf_hub_download
 import os
 from datetime import datetime
 from ultralytics import YOLO
 
-# UPDATE this to match your folder name in Google Drive
-PROJECT_FOLDER_NAME = "pruning" 
-PROJECT_DIR = f"/content/drive/MyDrive/{PROJECT_FOLDER_NAME}"
-os.chdir(PROJECT_DIR)
-
 MODELS = {
     "original": "yolo26n.pt",
-    "pruned": "yolo26n_pruned.pt"
+    "pruned": hf_hub_download(repo_id="Anahia/yolo26n_pruned", filename="yolo26n_pruned.pt"),
 }
 
 METRICS_FILE = "docs/metrics.md"
 
+
 # %%
-# Cell 2: Evaluation Function
-def evaluate_model(name, path):
+def evaluate_model(name: str, path: str) -> dict | None:
     if not os.path.exists(path):
-        print(f"Skipping {name}: File not found at {path}")
-        return
-        
+        print(f"Skipping {name}: file not found at {path}")
+        return None
+
     print(f"\n--- Evaluating {name} on COCO val2017 ---")
     model = YOLO(path)
-    
+
     results = model.val(
         data="coco.yaml",
         imgsz=640,
         batch=32,
         device=0,
-        verbose=True
+        verbose=True,
     )
-    
+
+    return {
+        "name": name,
+        "map50": results.box.map50,
+        "map50_95": results.box.map,
+        "precision": results.box.mp,
+        "recall": results.box.mr,
+        "inference_ms": results.speed["inference"],
+    }
+
+
+# %%
+os.makedirs("docs", exist_ok=True)
+
+for name, path in MODELS.items():
+    r = evaluate_model(name, path)
+    if r is None:
+        continue
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    log_entry = (
-        f"## Experiment: {name}\n"
+    entry = (
+        f"## Experiment: {r['name']}\n"
         f"- **Date:** {timestamp}\n"
         f"- **Device:** GPU (Colab T4)\n"
         f"- **Dataset:** COCO val2017\n"
-        f"- **Box mAP50:** {results.box.map50:.4f}\n"
-        f"- **Box mAP50-95:** {results.box.map:.4f}\n"
-        f"- **Precision:** {results.box.mp:.4f}\n"
-        f"- **Recall:** {results.box.mr:.4f}\n\n"
+        f"- **Box mAP50:** {r['map50']:.4f}\n"
+        f"- **Box mAP50-95:** {r['map50_95']:.4f}\n"
+        f"- **Precision:** {r['precision']:.4f}\n"
+        f"- **Recall:** {r['recall']:.4f}\n"
+        f"- **Inference (ms):** {r['inference_ms']:.2f}\n\n"
     )
-    
-    os.makedirs(os.path.dirname(METRICS_FILE), exist_ok=True)
-    
+
     with open(METRICS_FILE, "a") as f:
-        f.write(log_entry)
-        
-    print(f"Metrics saved to {METRICS_FILE}")
-    print(log_entry)
+        f.write(entry)
+    print(entry)
 
 # %%
-# Cell 3: Run Evaluations
-for name, path in MODELS.items():
-    evaluate_model(name, path)
-
-# %% [markdown]
-# Evaluation complete. Check `docs/metrics.md` in your Google Drive for the final report.
+from google.colab import files
+files.download("docs/metrics.md")

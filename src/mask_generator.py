@@ -65,8 +65,8 @@ def _get_layer_index(name: str) -> int | None:
 def _get_partner_names(model: YOLO, partner_indices: set[int]) -> list[str]:
     names = []
     for idx in partner_indices:
-        target_module = model.model[idx]
-        for name, module in model.model.named_modules():
+        target_module = model.model.model[idx]
+        for name, module in model.model.model.named_modules():
             if module is target_module:
                 for sub_name, sub_module in target_module.named_modules():
                     if isinstance(sub_module, torch.nn.Conv2d) and "conv" in sub_name:
