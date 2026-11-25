@@ -18,7 +18,11 @@ from dataclasses import dataclass
 
 import torch
 from ultralytics import YOLO
-from ultralytics.utils import ASSETS_URL, YAML
+try:
+    from ultralytics.utils import ASSETS_URL
+except ImportError:
+    from ultralytics.utils.downloads import ASSETS_URL
+from ultralytics.utils import YAML
 from ultralytics.utils.checks import check_yaml
 from ultralytics.utils.downloads import download
 
@@ -40,11 +44,11 @@ WORKERS = 2
 LR0 = 0.001
 LRF = 0.01
 WARMUP_EPOCHS = 3
-PATIENCE = 5
+PATIENCE = 10
 AMP = True
 
 EXPECTED_CLASSES = 80
-LABEL_SAMPLE_SIZE = 20
+LABEL_SAMPLE_SIZE = 200
 SPLITS = ("train", "val")
 ULTRALYTICS_SPLITS = ("train2017", "val2017")
 
@@ -79,6 +83,7 @@ def find_split_dir(root: Path, split: str) -> Path | None:
 def find_label_dir(root: Path, split: str) -> Path | None:
     candidates = [
         root / "labels" / split,
+        root / split / "labels",
         root / "coco" / "labels" / split,
         root / "coco2017" / "labels" / split,
     ]
@@ -86,6 +91,9 @@ def find_label_dir(root: Path, split: str) -> Path | None:
         if candidate.is_dir() and any(candidate.glob("*.txt")):
             return candidate
     for candidate in root.rglob(f"labels/{split}"):
+        if candidate.is_dir() and any(candidate.glob("*.txt")):
+            return candidate
+    for candidate in root.rglob(f"{split}/labels"):
         if candidate.is_dir() and any(candidate.glob("*.txt")):
             return candidate
     return None
@@ -153,9 +161,9 @@ def resolve_dataset_layout(input_dir: Path, work_dir: Path) -> DatasetLayout:
         labels_link = work_dir / "labels" / ultra
         images_link.parent.mkdir(parents=True, exist_ok=True)
         labels_link.parent.mkdir(parents=True, exist_ok=True)
-        if not images_link.exists():
+        if not images_link.is_symlink() and not images_link.exists():
             images_link.symlink_to(image_dirs[ultra], target_is_directory=True)
-        if not labels_link.exists():
+        if not labels_link.is_symlink() and not labels_link.exists():
             labels_link.symlink_to(downloaded_labels[split], target_is_directory=True)
 
     return DatasetLayout(
@@ -174,11 +182,14 @@ def validate_labels(label_dir: Path, split: str) -> tuple[int, int]:
 
     min_class = EXPECTED_CLASSES
     max_class = -1
+    non_empty = 0
     for path in files:
+        has_annotation = False
         for line in path.read_text().splitlines():
             parts = line.split()
             if not parts:
                 continue
+            has_annotation = True
             if len(parts) != 5:
                 raise ValueError(
                     f"{path} has {len(parts)} fields, expected 5 for detection boxes"
@@ -186,8 +197,10 @@ def validate_labels(label_dir: Path, split: str) -> tuple[int, int]:
             class_id = int(parts[0])
             min_class = min(min_class, class_id)
             max_class = max(max_class, class_id)
+        if has_annotation:
+            non_empty += 1
 
-    if max_class < 0:
+    if non_empty == 0:
         raise ValueError(f"No annotations found in sampled {split} label files")
 
     if min_class < 0 or max_class >= EXPECTED_CLASSES:

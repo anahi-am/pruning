@@ -39,6 +39,18 @@ def test_find_label_dir_supports_labels_folder(tmp_path):
     assert find_label_dir(tmp_path, "train2017") == tmp_path / "labels" / "train2017"
 
 
+def test_find_label_dir_supports_split_labels_folder(tmp_path):
+    _write(tmp_path / "train" / "labels" / "a.txt")
+
+    assert find_label_dir(tmp_path, "train") == tmp_path / "train" / "labels"
+
+
+def test_find_label_dir_falls_back_to_nested_split_labels(tmp_path):
+    _write(tmp_path / "nested" / "train" / "labels" / "a.txt")
+
+    assert find_label_dir(tmp_path, "train") == tmp_path / "nested" / "train" / "labels"
+
+
 def test_find_label_dir_returns_none_when_missing(tmp_path):
     assert find_label_dir(tmp_path, "train2017") is None
 
@@ -51,6 +63,13 @@ def test_validate_labels_reports_class_range(tmp_path):
 
 def test_validate_labels_ignores_blank_lines(tmp_path):
     _write(tmp_path / "a.txt", "\n0 0.5 0.5 0.1 0.1\n\n")
+
+    assert validate_labels(tmp_path, "train") == (0, 0)
+
+
+def test_validate_labels_skips_empty_files(tmp_path):
+    _write(tmp_path / "empty.txt", "   \n\n")
+    _write(tmp_path / "a.txt", "0 0.5 0.5 0.1 0.1\n")
 
     assert validate_labels(tmp_path, "train") == (0, 0)
 
