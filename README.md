@@ -14,11 +14,7 @@ uv add ultralytics torch torchvision
 ```python
 from src.prune_model import prune_yolo_model
 
-prune_yolo_model(
-    model_path="yolo26n.pt",
-    ratio=0.3,
-    output_path="yolo26n_pruned.pt"
-)
+prune_yolo_model(model_path="yolo26n.pt", ratio=0.3, output_path="yolo26n_pruned.pt")
 ```
 
 ## Project Structure

@@ -1,65 +1,76 @@
+from torch import nn
+from ultralytics.nn.tasks import DetectionModel
+
+CONCAT_LAYER_TYPE = "Concat"
+DETECT_LAYER_TYPE = "Detect"
+PREVIOUS_LAYER = -1
+
+
 class DependencyGraph:
-    def __init__(self):
-        # concat_map[layer] = [source1, source2] — inputs to each Concat layer
-        # 12: Concat(10, 6)  — C2PSA output + C3k2(6) output
-        # 15: Concat(13, 4)  — C3k2(13) output + C3k2(4) output
-        # 18: Concat(16, 13) — C3k2(16) output + C3k2(13) output
-        # 21: Concat(19, 10) — C3k2(19) output + C2PSA(10) output
-        self.concat_map = {12: [10, 6], 15: [13, 4], 18: [16, 13], 21: [19, 10]}
-        self.sync_groups = self._build_sync_groups()
-        self.layer_dependencies = self._build_layer_dependencies()
+    def __init__(self, model: DetectionModel) -> None:
+        self.model = model
+        self.layers = model.model
+        self.layer_sources = self._build_layer_sources()
+        self.detect_idx = self._find_layer(DETECT_LAYER_TYPE)
+        self.detect_sources = (
+            self.layer_sources[self.detect_idx] if self.detect_idx is not None else ()
+        )
 
-    def _build_sync_groups(self) -> list[set[int]]:
-        groups = []
-        for sources in self.concat_map.values():
-            groups.append(set(sources))
-        return groups
+    def _find_layer(self, layer_type: str) -> int | None:
+        for idx, layer in enumerate(self.layers):
+            if type(layer).__name__ == layer_type:
+                return idx
+        return None
 
-    def _build_layer_dependencies(self) -> dict[int, int]:
-        deps = {}
+    def _normalize_sources(self, idx: int, f: int | list[int]) -> tuple[int, ...]:
+        raw = [f] if isinstance(f, int) else list(f)
+        sources = []
+        for source in raw:
+            resolved = idx - 1 if source == PREVIOUS_LAYER else source
+            if 0 <= resolved < idx:
+                sources.append(resolved)
+        return tuple(sources)
 
-        # Backbone: sequential 0→1→2→3→4→5→6→7→8→9→10
-        for i in range(10):
-            deps[i + 1] = i
+    def _build_layer_sources(self) -> dict[int, tuple[int, ...]]:
+        return {
+            idx: self._normalize_sources(idx, getattr(layer, "f", PREVIOUS_LAYER))
+            for idx, layer in enumerate(self.layers)
+        }
 
-        # 11: Upsample — takes output of 10
-        deps[11] = 10
+    def get_sources(self, idx: int) -> tuple[int, ...]:
+        return self.layer_sources.get(idx, ())
 
-        # 12: Concat — handled by concat_map, skip
-        # 13: C3k2 — takes output of 12 (Concat)
-        deps[13] = 12
+    def get_input_source(self, idx: int) -> int | None:
+        sources = self.get_sources(idx)
+        return sources[0] if len(sources) == 1 else None
 
-        # 14: Upsample — takes output of 13
-        deps[14] = 13
+    def is_concat(self, idx: int) -> bool:
+        return type(self.layers[idx]).__name__ == CONCAT_LAYER_TYPE
 
-        # 15: Concat — handled by concat_map, skip
-        # 16: C3k2 — takes output of 15 (Concat)
-        deps[16] = 15
+    def get_output_conv_name(self, idx: int) -> str | None:
+        layer = self.layers[idx]
+        cv2 = getattr(layer, "cv2", None)
+        if isinstance(cv2, nn.Module) and isinstance(
+            getattr(cv2, "conv", None), nn.Conv2d
+        ):
+            return f"model.{idx}.cv2.conv"
+        if isinstance(getattr(layer, "conv", None), nn.Conv2d):
+            return f"model.{idx}.conv"
+        return None
 
-        # 17: Conv — takes output of 16
-        deps[17] = 16
+    def get_entry_conv_name(self, idx: int) -> str | None:
+        layer = self.layers[idx]
+        cv1 = getattr(layer, "cv1", None)
+        if isinstance(cv1, nn.Module) and isinstance(
+            getattr(cv1, "conv", None), nn.Conv2d
+        ):
+            return f"model.{idx}.cv1.conv"
+        if isinstance(getattr(layer, "conv", None), nn.Conv2d):
+            return f"model.{idx}.conv"
+        return None
 
-        # 18: Concat — handled by concat_map, skip
-        # 19: C3k2 — takes output of 18 (Concat)
-        deps[19] = 18
-
-        # 20: Conv — takes output of 19
-        deps[20] = 19
-
-        # 21: Concat — handled by concat_map, skip
-        # 22: C3k2 — takes output of 21 (Concat)
-        deps[22] = 21
-
-        # 23: Detect — takes outputs of 16, 19, 22 (3 scale heads)
-        # Not included — Detect is never pruned
-
-        return deps
-
-    def get_sync_partners(self, layer_idx: int) -> set[int]:
-        for group in self.sync_groups:
-            if layer_idx in group:
-                return group - {layer_idx}
-        return set()
-
-    def get_input_source(self, layer_idx: int) -> int | None:
-        return self.layer_dependencies.get(layer_idx)
+    def get_original_out_channels(self, idx: int) -> int | None:
+        conv_name = self.get_output_conv_name(idx)
+        if conv_name is None:
+            return None
+        return self.model.get_submodule(conv_name).out_channels

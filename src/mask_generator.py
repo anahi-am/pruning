@@ -1,71 +1,32 @@
 import torch
 from ultralytics import YOLO
-from src.scoring import magnitude_scores
+
 from src.dependency_graph import DependencyGraph
+from src.scoring import magnitude_scores
+
+MIN_KEPT_CHANNELS = 1
 
 
 def generate_pruning_masks(
     model: YOLO, ratio: float, graph: DependencyGraph
 ) -> dict[str, torch.BoolTensor]:
+    if not 0 < ratio < 1:
+        raise ValueError("ratio must be between 0 and 1")
+
     scores = magnitude_scores(model)
-    masks = {}
-    processed_layers = set()
+    masks: dict[str, torch.BoolTensor] = {}
 
-    for name, score in scores.items():
-        if name in processed_layers:
+    for idx in range(len(graph.layers)):
+        conv_name = graph.get_output_conv_name(idx)
+        if conv_name is None or conv_name not in scores:
             continue
 
-        layer_idx = _get_layer_index(name)
-        if layer_idx is None:
-            continue
+        score = scores[conv_name]
+        num_to_keep = max(MIN_KEPT_CHANNELS, int(score.shape[0] * (1 - ratio)))
+        _, top_indices = torch.topk(score, num_to_keep, largest=True)
 
-        partners = graph.get_sync_partners(layer_idx)
-        partner_names = _get_partner_names(model, partners)
-
-        all_names = [name] + partner_names
-        all_scores = [scores[n] for n in all_names if n in scores]
-
-        if not all_scores:
-            continue
-
-        min_len = min(s.shape[0] for s in all_scores)
-        trimmed_scores = [s[:min_len] for s in all_scores]
-
-        avg_score = torch.mean(torch.stack(trimmed_scores), dim=0)
-
-        num_to_keep = int(min_len * (1 - ratio))
-        if num_to_keep == 0:
-            num_to_keep = 1
-
-        _, top_indices = torch.topk(avg_score, num_to_keep, largest=True)
-
-        shared_mask = torch.zeros(min_len, dtype=torch.bool)
-        shared_mask[top_indices] = True
-
-        for n in all_names:
-            if n in scores:
-                full_mask = torch.zeros(scores[n].shape[0], dtype=torch.bool)
-                full_mask[:min_len] = shared_mask
-                full_mask[min_len:] = True
-                masks[n] = full_mask
-                processed_layers.add(n)
+        mask = torch.zeros(score.shape[0], dtype=torch.bool)
+        mask[top_indices] = True
+        masks[conv_name] = mask
 
     return masks
-
-
-def _get_layer_index(name: str) -> int | None:
-    parts = name.split(".")
-    try:
-        return int(parts[1])
-    except IndexError, ValueError:
-        return None
-
-
-def _get_partner_names(model: YOLO, partner_indices: set[int]) -> list[str]:
-    names = []
-    for idx in partner_indices:
-        target_module = model.model.model[idx]
-        for sub_name, sub_module in target_module.named_modules():
-            if isinstance(sub_module, torch.nn.Conv2d) and "conv" in sub_name:
-                names.append(f"model.{idx}.{sub_name}")
-    return names

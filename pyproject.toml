@@ -9,3 +9,12 @@ dependencies = [
     "torchvision>=0.29.2",
     "ultralytics>=8.4.215",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.6",
+]
+
+[tool.ruff]
+exclude = ["src/evaluate_model.py"]
