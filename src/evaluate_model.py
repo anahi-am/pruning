@@ -6,12 +6,12 @@ import os
 from datetime import datetime
 from ultralytics import YOLO
 
+YOLO("yolo26n.pt")
+
 MODELS = {
     "original": "yolo26n.pt",
     "pruned": hf_hub_download(repo_id="Anahia/yolo26n_pruned", filename="yolo26n_pruned.pt"),
 }
-
-METRICS_FILE = "docs/metrics.md"
 
 
 # %%
@@ -24,7 +24,7 @@ def evaluate_model(name: str, path: str) -> dict | None:
     model = YOLO(path)
 
     results = model.val(
-        data="coco.yaml",
+        data="coco8.yaml",
         imgsz=640,
         batch=32,
         device=0,
@@ -42,19 +42,22 @@ def evaluate_model(name: str, path: str) -> dict | None:
 
 
 # %%
-os.makedirs("docs", exist_ok=True)
-
+results = {}
 for name, path in MODELS.items():
-    r = evaluate_model(name, path)
+    results[name] = evaluate_model(name, path)
+
+
+# %%
+timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+lines = []
+for name, r in results.items():
     if r is None:
         continue
-
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry = (
-        f"## Experiment: {r['name']}\n"
+    lines.append(
+        f"## Experiment: {name}\n"
         f"- **Date:** {timestamp}\n"
         f"- **Device:** GPU (Colab T4)\n"
-        f"- **Dataset:** COCO val2017\n"
+        f"- **Dataset:** COCO8\n"
         f"- **Box mAP50:** {r['map50']:.4f}\n"
         f"- **Box mAP50-95:** {r['map50_95']:.4f}\n"
         f"- **Precision:** {r['precision']:.4f}\n"
@@ -62,10 +65,8 @@ for name, path in MODELS.items():
         f"- **Inference (ms):** {r['inference_ms']:.2f}\n\n"
     )
 
-    with open(METRICS_FILE, "a") as f:
-        f.write(entry)
-    print(entry)
+with open("metrics.md", "w") as f:
+    f.writelines(lines)
 
-# %%
 from google.colab import files
-files.download("docs/metrics.md")
+files.download("metrics.md")

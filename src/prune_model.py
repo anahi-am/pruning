@@ -6,21 +6,6 @@ from src.mask_generator import generate_pruning_masks
 from src.apply_masks import apply_masks
 
 
-def get_conv_names_for_layer(model: YOLO, layer_idx: int) -> list[str]:
-    names = []
-    sequential_block = model.model
-
-    if not isinstance(sequential_block, nn.Sequential):
-        return names
-
-    target_module = sequential_block[layer_idx]
-
-    for name, module in target_module.named_modules():
-        if isinstance(module, torch.nn.Conv2d):
-            names.append(f"model.{layer_idx}.{name}")
-    return names
-
-
 def prune_yolo_model(
     model_path: str = "yolo26n.pt",
     ratio: float = 0.3,
@@ -33,7 +18,7 @@ def prune_yolo_model(
 
     graph = DependencyGraph()
     masks = generate_pruning_masks(model, ratio, graph)
-    apply_masks(model.model, masks)
+    apply_masks(model.model, masks, graph)
 
     model.save(output_path)
     print(f"Pruned model saved to {output_path}")
