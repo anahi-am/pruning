@@ -28,6 +28,7 @@ pruning/
 │   ├── dependency_graph.py# Architectural dependency mapping
 │   ├── mask_generator.py  # Synchronized mask creation
 │   ├── apply_masks.py     # Weight surgery and BatchNorm sync
+│   ├── finetuning.py      # Kaggle fine-tuning script
 │   └── evaluate_model.py  # Colab-ready evaluation script
 ├── docs/
 │   └── metrics.md         # Experimental results log
@@ -49,3 +50,50 @@ Run the evaluation in Google Colab against COCO val2017:
 The script pulls the original model from Ultralytics and the pruned checkpoint
 from [Anahia/yolo26n_pruned](https://huggingface.co/Anahia/yolo26n_pruned) automatically.
 No manual uploads required.
+
+## Fine-Tuning on Kaggle
+
+The pruned checkpoint can be fine-tuned on full COCO with `src/finetuning.py`.
+
+1. Create a Kaggle notebook with a GPU accelerator and Internet enabled
+2. Add the dataset `alifshahariar/ms-coco-2017-dataset-yolo-format` via Add Input
+3. Paste the contents of `src/finetuning.py` into the notebook and run the cells in order
+
+The dataset is already in YOLO format and mounts at
+`/kaggle/input/ms-coco-2017-dataset-yolo-format`:
+
+```
+train/
+  images/
+  labels/
+val/
+  images/
+  labels/
+```
+
+The script:
+
+- builds `/kaggle/working/coco_finetune.yaml` from the dataset layout
+- validates sampled labels (5 fields, class IDs 0 to 79) before training
+- pulls `Anahia/yolo26n_pruned` from Hugging Face
+- trains for `EPOCHS` epochs and writes `/kaggle/working/yolo26n_pruned_finetuned.pt`
+- runs `val()` on the fine-tuned checkpoint
+
+Outputs:
+
+- `/kaggle/working/runs/train/pruned_finetune/weights/best.pt`
+- `/kaggle/working/yolo26n_pruned_finetuned.pt`
+
+Notes:
+
+- `/kaggle/input` is read only. Ultralytics skips its label cache and rescans labels on each run
+- 10 epochs on full COCO can approach the 12 hour session limit. Lower `EPOCHS` or use a subset if needed
+- if the label check fails, the dataset class IDs do not match the 80 class COCO order
+
+## Tests
+
+```bash
+uv run pytest -q
+```
+
+Integration tests use the real `yolo26n.pt` weights and are marked `integration`.

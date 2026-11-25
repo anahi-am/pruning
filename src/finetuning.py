@@ -3,13 +3,20 @@
 # Run this notebook in Kaggle with a GPU and Internet enabled.
 
 # %%
-!pip install -q ultralytics huggingface_hub
-
-# %%
+import subprocess
+import sys
 from pathlib import Path
 
+if Path("/kaggle").is_dir():
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "ultralytics", "huggingface_hub"],
+        check=True,
+    )
+
+# %%
+from dataclasses import dataclass
+
 import torch
-from huggingface_hub import hf_hub_download
 from ultralytics import YOLO
 from ultralytics.utils import ASSETS_URL, YAML
 from ultralytics.utils.checks import check_yaml
@@ -42,6 +49,15 @@ SPLITS = ("train", "val")
 ULTRALYTICS_SPLITS = ("train2017", "val2017")
 
 # %%
+@dataclass(frozen=True)
+class DatasetLayout:
+    data_root: Path
+    train_entry: str
+    val_entry: str
+    label_dirs: dict[str, Path]
+    uses_input: bool
+
+
 def find_split_dir(root: Path, split: str) -> Path | None:
     candidates = [
         root / split,
@@ -75,6 +91,82 @@ def find_label_dir(root: Path, split: str) -> Path | None:
     return None
 
 
+def resolve_dataset_layout(input_dir: Path, work_dir: Path) -> DatasetLayout:
+    if not input_dir.is_dir():
+        raise FileNotFoundError(f"Dataset root not found: {input_dir}")
+
+    direct = all(
+        (input_dir / split / "images").is_dir()
+        and (input_dir / split / "labels").is_dir()
+        for split in SPLITS
+    )
+    if direct:
+        return DatasetLayout(
+            data_root=input_dir,
+            train_entry="train/images",
+            val_entry="val/images",
+            label_dirs={split: input_dir / split / "labels" for split in SPLITS},
+            uses_input=True,
+        )
+
+    image_dirs = {
+        split: find_split_dir(input_dir, split) for split in ULTRALYTICS_SPLITS
+    }
+    missing_images = [split for split, path in image_dirs.items() if path is None]
+    if missing_images:
+        raise FileNotFoundError(
+            f"Could not find images for {missing_images} under {input_dir}. "
+            "Update COCO_INPUT_DIR to the mounted COCO dataset root"
+        )
+    image_dirs = {split: path for split, path in image_dirs.items() if path is not None}
+
+    label_dirs = {
+        split: find_label_dir(input_dir, ultra)
+        for split, ultra in zip(SPLITS, ULTRALYTICS_SPLITS)
+    }
+    if all(path is not None for path in label_dirs.values()):
+        label_dirs = {
+            split: path for split, path in label_dirs.items() if path is not None
+        }
+        return DatasetLayout(
+            data_root=input_dir,
+            train_entry=f"images/{ULTRALYTICS_SPLITS[0]}",
+            val_entry=f"images/{ULTRALYTICS_SPLITS[1]}",
+            label_dirs=label_dirs,
+            uses_input=True,
+        )
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    download(f"{ASSETS_URL}/coco2017labels.zip", dir=work_dir.parent, delete=True)
+    downloaded_labels = {
+        split: work_dir / "labels" / ultra
+        for split, ultra in zip(SPLITS, ULTRALYTICS_SPLITS)
+    }
+    missing_labels = [
+        split for split, path in downloaded_labels.items() if not path.is_dir()
+    ]
+    if missing_labels:
+        raise FileNotFoundError(f"Downloaded labels are missing for {missing_labels}")
+
+    for split, ultra in zip(SPLITS, ULTRALYTICS_SPLITS):
+        images_link = work_dir / "images" / ultra
+        labels_link = work_dir / "labels" / ultra
+        images_link.parent.mkdir(parents=True, exist_ok=True)
+        labels_link.parent.mkdir(parents=True, exist_ok=True)
+        if not images_link.exists():
+            images_link.symlink_to(image_dirs[ultra], target_is_directory=True)
+        if not labels_link.exists():
+            labels_link.symlink_to(downloaded_labels[split], target_is_directory=True)
+
+    return DatasetLayout(
+        data_root=work_dir,
+        train_entry=f"images/{ULTRALYTICS_SPLITS[0]}",
+        val_entry=f"images/{ULTRALYTICS_SPLITS[1]}",
+        label_dirs=downloaded_labels,
+        uses_input=False,
+    )
+
+
 def validate_labels(label_dir: Path, split: str) -> tuple[int, int]:
     files = list(label_dir.glob("*.txt"))[:LABEL_SAMPLE_SIZE]
     if not files:
@@ -106,127 +198,83 @@ def validate_labels(label_dir: Path, split: str) -> tuple[int, int]:
     return min_class, max_class
 
 
-# %%
-if not COCO_INPUT_DIR.is_dir():
-    raise FileNotFoundError(f"Dataset root not found: {COCO_INPUT_DIR}")
+def build_dataset_config(
+    data_root: Path,
+    train_entry: str,
+    val_entry: str,
+    output_path: Path,
+) -> dict:
+    config = YAML.load(check_yaml("coco.yaml"))
+    config["path"] = str(data_root)
+    config["train"] = train_entry
+    config["val"] = val_entry
+    config.pop("test", None)
+    config.pop("download", None)
+    YAML.save(output_path, config)
+    return config
 
-direct_layout = all(
-    (COCO_INPUT_DIR / split / "images").is_dir()
-    and (COCO_INPUT_DIR / split / "labels").is_dir()
-    for split in SPLITS
-)
-
-if direct_layout:
-    DATA_ROOT = COCO_INPUT_DIR
-    DATA_ENTRIES = {"train": "train/images", "val": "val/images"}
-    LABEL_DIRS = {split: COCO_INPUT_DIR / split / "labels" for split in SPLITS}
-    print(f"Using YOLO ready layout at {DATA_ROOT}")
-else:
-    image_dirs = {
-        split: find_split_dir(COCO_INPUT_DIR, split) for split in ULTRALYTICS_SPLITS
-    }
-    missing_images = [split for split, path in image_dirs.items() if path is None]
-    if missing_images:
-        raise FileNotFoundError(
-            f"Could not find images for {missing_images} under {COCO_INPUT_DIR}. "
-            "Update COCO_INPUT_DIR to the mounted COCO dataset root"
-        )
-
-    label_dirs = {
-        split: find_label_dir(COCO_INPUT_DIR, split) for split in ULTRALYTICS_SPLITS
-    }
-    yolo_ready = all(path is not None for path in label_dirs.values())
-
-    WORK_DATASET_DIR.mkdir(parents=True, exist_ok=True)
-
-    if not yolo_ready:
-        download(f"{ASSETS_URL}/coco2017labels.zip", dir=WORK_DATASET_DIR.parent, delete=True)
-        label_dirs = {
-            split: WORK_DATASET_DIR / "labels" / split for split in ULTRALYTICS_SPLITS
-        }
-        missing_labels = [
-            split for split, path in label_dirs.items() if not path.is_dir()
-        ]
-        if missing_labels:
-            raise FileNotFoundError(f"Downloaded labels are missing for {missing_labels}")
-
-    for split in ULTRALYTICS_SPLITS:
-        images_link = WORK_DATASET_DIR / "images" / split
-        labels_link = WORK_DATASET_DIR / "labels" / split
-        images_link.parent.mkdir(parents=True, exist_ok=True)
-        labels_link.parent.mkdir(parents=True, exist_ok=True)
-        if not images_link.exists():
-            images_link.symlink_to(image_dirs[split], target_is_directory=True)
-        if not labels_link.exists():
-            labels_link.symlink_to(label_dirs[split], target_is_directory=True)
-
-    DATA_ROOT = WORK_DATASET_DIR
-    DATA_ENTRIES = {
-        "train": f"images/{ULTRALYTICS_SPLITS[0]}",
-        "val": f"images/{ULTRALYTICS_SPLITS[1]}",
-    }
-    LABEL_DIRS = {
-        split: WORK_DATASET_DIR / "labels" / ultra
-        for split, ultra in zip(SPLITS, ULTRALYTICS_SPLITS)
-    }
-    print(f"Normalized dataset root: {DATA_ROOT}")
 
 # %%
-config = YAML.load(check_yaml("coco.yaml"))
-config["path"] = str(DATA_ROOT)
-config["train"] = DATA_ENTRIES["train"]
-config["val"] = DATA_ENTRIES["val"]
-config.pop("test", None)
-config.pop("download", None)
-YAML.save(COCO_YAML, config)
-print(f"Wrote dataset config to {COCO_YAML}")
+if __name__ == "__main__":
+    layout = resolve_dataset_layout(COCO_INPUT_DIR, WORK_DATASET_DIR)
+    print(f"Using dataset root {layout.data_root}")
+
+    build_dataset_config(
+        layout.data_root, layout.train_entry, layout.val_entry, COCO_YAML
+    )
+    print(f"Wrote dataset config to {COCO_YAML}")
+
+    for split in SPLITS:
+        lowest, highest = validate_labels(layout.label_dirs[split], split)
+        print(f"{split} class ids: {lowest} to {highest}")
 
 # %%
-for split in SPLITS:
-    lowest, highest = validate_labels(LABEL_DIRS[split], split)
-    print(f"{split} class ids: {lowest} to {highest}")
+if __name__ == "__main__":
+    from huggingface_hub import hf_hub_download
+
+    model_path = hf_hub_download(repo_id=MODEL_REPO_ID, filename=MODEL_FILENAME)
+    model = YOLO(model_path)
+    print(f"Loaded pruned model from {model_path}")
+    print(f"Parameters: {sum(p.numel() for p in model.model.parameters()):,}")
+
+    model.model.eval()
+    with torch.no_grad():
+        model.model(torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE))
+    print("Dummy forward pass succeeded")
 
 # %%
-model_path = hf_hub_download(repo_id=MODEL_REPO_ID, filename=MODEL_FILENAME)
-model = YOLO(model_path)
-print(f"Loaded pruned model from {model_path}")
-print(f"Parameters: {sum(p.numel() for p in model.model.parameters()):,}")
-
-model.model.eval()
-with torch.no_grad():
-    model.model(torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE))
-print("Dummy forward pass succeeded")
-
-# %%
-results = model.train(
-    data=str(COCO_YAML),
-    epochs=EPOCHS,
-    imgsz=IMAGE_SIZE,
-    batch=BATCH,
-    device=DEVICE,
-    workers=WORKERS,
-    lr0=LR0,
-    lrf=LRF,
-    warmup_epochs=WARMUP_EPOCHS,
-    patience=PATIENCE,
-    amp=AMP,
-    project=str(RUN_PROJECT),
-    name=RUN_NAME,
-    exist_ok=True,
-)
+if __name__ == "__main__":
+    model.train(
+        data=str(COCO_YAML),
+        epochs=EPOCHS,
+        imgsz=IMAGE_SIZE,
+        batch=BATCH,
+        device=DEVICE,
+        workers=WORKERS,
+        lr0=LR0,
+        lrf=LRF,
+        warmup_epochs=WARMUP_EPOCHS,
+        patience=PATIENCE,
+        amp=AMP,
+        project=str(RUN_PROJECT),
+        name=RUN_NAME,
+        exist_ok=True,
+    )
 
 # %%
-best_path = RUN_PROJECT / RUN_NAME / "weights" / "best.pt"
-best_model = YOLO(str(best_path))
-best_model.save(str(OUTPUT_PATH))
-print(f"Saved fine-tuned model to {OUTPUT_PATH}")
+if __name__ == "__main__":
+    best_path = RUN_PROJECT / RUN_NAME / "weights" / "best.pt"
+    best_model = YOLO(str(best_path))
+    best_model.save(str(OUTPUT_PATH))
+    print(f"Saved fine-tuned model to {OUTPUT_PATH}")
 
 # %%
-metrics = YOLO(str(OUTPUT_PATH)).val(
-    data=str(COCO_YAML),
-    imgsz=IMAGE_SIZE,
-    batch=BATCH,
-    device=DEVICE,
-)
-print(f"mAP50: {metrics.box.map50:.4f}")
-print(f"mAP50_95: {metrics.box.map:.4f}")
+if __name__ == "__main__":
+    metrics = YOLO(str(OUTPUT_PATH)).val(
+        data=str(COCO_YAML),
+        imgsz=IMAGE_SIZE,
+        batch=BATCH,
+        device=DEVICE,
+    )
+    print(f"mAP50: {metrics.box.map50:.4f}")
+    print(f"mAP50_95: {metrics.box.map:.4f}")
