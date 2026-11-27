@@ -1,7 +1,7 @@
 import pytest
 from ultralytics.utils import YAML
 
-from src.finetuning import (
+from src.fine_tuning import (
     EXPECTED_CLASSES,
     DatasetLayout,
     build_dataset_config,

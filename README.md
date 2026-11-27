@@ -28,7 +28,7 @@ pruning/
 │   ├── dependency_graph.py# Architectural dependency mapping
 │   ├── mask_generator.py  # Synchronized mask creation
 │   ├── apply_masks.py     # Weight surgery and BatchNorm sync
-│   ├── finetuning.py      # Kaggle fine-tuning script
+│   ├── fine_tuning.py     # Kaggle fine-tuning script
 │   └── evaluate_model.py  # Colab-ready evaluation script
 ├── docs/
 │   └── metrics.md         # Experimental results log
@@ -53,11 +53,11 @@ No manual uploads required.
 
 ## Fine-Tuning on Kaggle
 
-The pruned checkpoint can be fine-tuned on full COCO with `src/finetuning.py`.
+The pruned checkpoint can be fine-tuned on full COCO with `src/fine_tuning.py`.
 
 1. Create a Kaggle notebook with a GPU accelerator and Internet enabled
 2. Add the dataset `alifshahariar/ms-coco-2017-dataset-yolo-format` via Add Input
-3. Paste the contents of `src/finetuning.py` into the notebook and run the cells in order
+3. Paste the contents of `src/fine_tuning.py` into the notebook and run the cells in order
 
 The dataset is already in YOLO format and mounts at
 `/kaggle/input/ms-coco-2017-dataset-yolo-format`:
