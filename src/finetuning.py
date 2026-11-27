@@ -314,7 +314,13 @@ if __name__ == "__main__":
     best_path = RUN_PROJECT / RUN_NAME / "weights" / "best.pt"
     best_model = YOLO(str(best_path))
     best_model.save(str(OUTPUT_PATH))
+
+    reloaded = YOLO(str(OUTPUT_PATH))
+    reloaded.model.eval()
+    with torch.no_grad():
+        reloaded.model(torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE))
     print(f"Saved fine-tuned model to {OUTPUT_PATH}")
+    print("Post-training reload verified")
 
 # %%
 if __name__ == "__main__":
