@@ -31,14 +31,15 @@ pruning/
 │   ├── fine_tuning.py     # Kaggle fine-tuning script
 │   └── evaluate_model.py  # Colab-ready evaluation script
 ├── docs/
-│   └── metrics.md         # Experimental results log
+│   ├── project-direction.md  # Use cases and model goals
+│   └── pruning-decisions.md  # Pruning ratio decision log
 ├── pyproject.toml
 └── README.md
 ```
 
 ## Benchmarks
 
-See docs/metrics.md for detailed experimental logs
+See docs/pruning-decisions.md for the pruning ratio decision log
 
 ## Reproducing Results
 
