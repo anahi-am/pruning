@@ -37,6 +37,20 @@ class TinyC3k2(nn.Module):
         return self.cv2(torch.cat((y, y), dim=1))
 
 
+class TinySPPF(nn.Module):
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.cv1 = TinyConv(channels, channels)
+        self.cv2 = TinyConv(channels * 4, channels)
+        self.add = True
+        self.n = 3
+        self.f = -1
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = self.cv1(x)
+        return self.cv2(torch.cat((y, y, y, y), dim=1)) + x
+
+
 class Concat(nn.Module):
     def __init__(self, sources: list[int]) -> None:
         super().__init__()

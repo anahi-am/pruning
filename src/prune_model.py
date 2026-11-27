@@ -1,5 +1,6 @@
 import argparse
 import copy
+import warnings
 
 import torch
 from torch import nn
@@ -10,9 +11,10 @@ from src.dependency_graph import DependencyGraph
 from src.mask_generator import generate_pruning_masks
 
 DEFAULT_MODEL = "yolo26n.pt"
-DEFAULT_RATIO = 0.3
+DEFAULT_RATIO = 0.10
 DEFAULT_OUTPUT = "yolo26n_pruned.pt"
 DEFAULT_IMAGE_SIZE = 640
+UNTUNED_RATIO_WARNING_THRESHOLD = 0.05
 
 
 def prune_yolo_model(
@@ -21,6 +23,14 @@ def prune_yolo_model(
     output_path: str = DEFAULT_OUTPUT,
     dry_run: bool = False,
 ) -> YOLO:
+    if ratio > UNTUNED_RATIO_WARNING_THRESHOLD:
+        warnings.warn(
+            f"Pruning ratio {ratio:.2f} exceeds "
+            f"{UNTUNED_RATIO_WARNING_THRESHOLD:.2f}; untuned mAP is expected to "
+            "collapse and recovery will require fine tuning",
+            stacklevel=2,
+        )
+
     model = YOLO(model_path)
     detection_model = model.model
 

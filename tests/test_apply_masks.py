@@ -2,7 +2,15 @@ import torch
 
 from src.apply_masks import apply_masks
 from src.dependency_graph import DependencyGraph
-from tests.helpers import Concat, Detect, TinyC3k2, TinyConv, TinyModel, make_mask
+from tests.helpers import (
+    Concat,
+    Detect,
+    TinyC3k2,
+    TinyConv,
+    TinyModel,
+    TinySPPF,
+    make_mask,
+)
 
 
 def build_model() -> TinyModel:
@@ -47,6 +55,26 @@ def test_apply_masks_preserves_internal_structure_and_forwards() -> None:
     with torch.no_grad():
         output = model(torch.zeros(1, 4, 8, 8))
     assert output.shape == (1, 3, 8, 8)
+
+
+def test_residual_output_mask_follows_input_mask() -> None:
+    model = TinyModel([TinyConv(4, 4), TinySPPF(4), TinyConv(4, 4)])
+    graph = DependencyGraph(model)
+    input_mask = torch.tensor([True, True, True, False])
+    conflicting_output_mask = torch.tensor([False, True, True, True])
+    masks = {
+        "model.0.conv": input_mask,
+        "model.1.cv2.conv": conflicting_output_mask,
+        "model.2.conv": torch.tensor([True, True, False, False]),
+    }
+
+    apply_masks(model, masks, graph)
+
+    assert model.model[1].cv2.conv.out_channels == int(input_mask.sum())
+    model.eval()
+    with torch.no_grad():
+        output = model(torch.zeros(1, 4, 8, 8))
+    assert output.shape[1] == int(masks["model.2.conv"].sum())
 
 
 def build_detect_model() -> TinyModel:

@@ -139,6 +139,43 @@ def _resolve_input_mask(
     return torch.cat(parts)
 
 
+def _validate_sppf_channels(layer: nn.Module) -> None:
+    if type(layer).__name__ != "SPPF":
+        return
+    pool_branches = getattr(layer, "n", 3) + 1
+    expected = pool_branches * layer.cv1.conv.out_channels
+    if layer.cv2.conv.in_channels != expected:
+        raise ValueError(
+            f"SPPF invariant broken: cv2.in_channels={layer.cv2.conv.in_channels} "
+            f"!= {pool_branches} * cv1.out_channels={layer.cv1.conv.out_channels}"
+        )
+
+
+def _couple_residual_masks(
+    graph: DependencyGraph,
+    masks: dict[str, torch.BoolTensor],
+    original_out_channels: dict[int, int],
+) -> None:
+    for idx in range(len(graph.layers)):
+        layer = graph.layers[idx]
+        _validate_sppf_channels(layer)
+        if not getattr(layer, "add", False):
+            continue
+        output_conv = graph.get_output_conv_name(idx)
+        if output_conv is None:
+            continue
+        output_channels = original_out_channels.get(idx)
+        input_mask = _resolve_input_mask(idx, graph, masks, original_out_channels)
+        if output_channels is None or input_mask is None:
+            continue
+        if input_mask.numel() != output_channels:
+            raise ValueError(
+                f"residual layer {idx} ({type(layer).__name__}) needs equal "
+                f"input/output channels, got {input_mask.numel()} and {output_channels}"
+            )
+        masks[output_conv] = input_mask.clone()
+
+
 def _apply_detect_masks(
     model: nn.Module,
     graph: DependencyGraph,
@@ -183,11 +220,13 @@ def apply_masks(
     if graph is None:
         graph = DependencyGraph(model)
 
+    masks = dict(masks)
     original_out_channels = {
         idx: channels
         for idx in range(len(graph.layers))
         if (channels := graph.get_original_out_channels(idx)) is not None
     }
+    _couple_residual_masks(graph, masks, original_out_channels)
 
     for name, mask in masks.items():
         module = model.get_submodule(name)

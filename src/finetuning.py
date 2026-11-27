@@ -9,7 +9,15 @@ from pathlib import Path
 
 if Path("/kaggle").is_dir():
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-q", "ultralytics", "huggingface_hub"],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "ultralytics",
+            "huggingface_hub",
+        ],
         check=True,
     )
 
@@ -18,6 +26,7 @@ from dataclasses import dataclass
 
 import torch
 from ultralytics import YOLO
+
 try:
     from ultralytics.utils import ASSETS_URL
 except ImportError:
@@ -49,8 +58,11 @@ AMP = True
 
 EXPECTED_CLASSES = 80
 LABEL_SAMPLE_SIZE = 200
+SANITY_DATA = "coco8.yaml"
+SANITY_MIN_MAP50 = 0.5
 SPLITS = ("train", "val")
 ULTRALYTICS_SPLITS = ("train2017", "val2017")
+
 
 # %%
 @dataclass(frozen=True)
@@ -138,8 +150,12 @@ def resolve_dataset_layout(input_dir: Path, work_dir: Path) -> DatasetLayout:
         }
         return DatasetLayout(
             data_root=input_dir,
-            train_entry=f"images/{ULTRALYTICS_SPLITS[0]}",
-            val_entry=f"images/{ULTRALYTICS_SPLITS[1]}",
+            train_entry=image_dirs[ULTRALYTICS_SPLITS[0]]
+            .relative_to(input_dir)
+            .as_posix(),
+            val_entry=image_dirs[ULTRALYTICS_SPLITS[1]]
+            .relative_to(input_dir)
+            .as_posix(),
             label_dirs=label_dirs,
             uses_input=True,
         )
@@ -227,6 +243,22 @@ def build_dataset_config(
     return config
 
 
+def sanity_check_model(model: YOLO) -> float:
+    metrics = model.val(
+        data=SANITY_DATA,
+        imgsz=IMAGE_SIZE,
+        device=DEVICE,
+        verbose=False,
+    )
+    map50 = float(metrics.box.map50)
+    if map50 < SANITY_MIN_MAP50:
+        raise RuntimeError(
+            f"Sanity check failed: mAP50 {map50:.3f} on {SANITY_DATA} is below "
+            f"{SANITY_MIN_MAP50:.2f}; the loaded checkpoint is likely broken"
+        )
+    return map50
+
+
 # %%
 if __name__ == "__main__":
     layout = resolve_dataset_layout(COCO_INPUT_DIR, WORK_DATASET_DIR)
@@ -254,6 +286,9 @@ if __name__ == "__main__":
     with torch.no_grad():
         model.model(torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE))
     print("Dummy forward pass succeeded")
+
+    sanity_map50 = sanity_check_model(model)
+    print(f"Sanity check passed: mAP50 {sanity_map50:.3f} on {SANITY_DATA}")
 
 # %%
 if __name__ == "__main__":
