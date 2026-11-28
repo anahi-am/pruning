@@ -8,7 +8,12 @@ from ultralytics import YOLO
 
 from src.apply_masks import apply_masks
 from src.dependency_graph import DependencyGraph
-from src.mask_generator import generate_pruning_masks
+from src.mask_generator import (
+    DEFAULT_LAYER_RATIOS,
+    LAYER_RATIO_MODES,
+    generate_pruning_masks,
+)
+from src.scoring import DEFAULT_SCORING, SCORING_METHODS
 
 DEFAULT_MODEL = "yolo26n.pt"
 DEFAULT_RATIO = 0.10
@@ -22,12 +27,14 @@ def prune_yolo_model(
     ratio: float = DEFAULT_RATIO,
     output_path: str = DEFAULT_OUTPUT,
     dry_run: bool = False,
+    scoring: str = DEFAULT_SCORING,
+    layer_ratios: str = DEFAULT_LAYER_RATIOS,
 ) -> YOLO:
     if ratio > UNTUNED_RATIO_WARNING_THRESHOLD:
         warnings.warn(
             f"Pruning ratio {ratio:.2f} exceeds "
-            f"{UNTUNED_RATIO_WARNING_THRESHOLD:.2f}; untuned mAP is expected to "
-            "collapse and recovery will require fine tuning",
+            f"{UNTUNED_RATIO_WARNING_THRESHOLD:.2f}; untuned mAP may drop "
+            "substantially and fine tuning is recommended",
             stacklevel=2,
         )
 
@@ -38,7 +45,7 @@ def prune_yolo_model(
         raise TypeError("Model backbone is not loaded or is invalid")
 
     graph = DependencyGraph(detection_model)
-    masks = generate_pruning_masks(model, ratio, graph)
+    masks = generate_pruning_masks(model, ratio, graph, scoring, layer_ratios)
 
     if dry_run:
         _report_dry_run(detection_model, graph, masks, ratio)
@@ -107,9 +114,20 @@ def main() -> None:
     parser.add_argument("--ratio", type=float, default=DEFAULT_RATIO)
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--scoring", choices=SCORING_METHODS, default=DEFAULT_SCORING)
+    parser.add_argument(
+        "--layer-ratios", choices=LAYER_RATIO_MODES, default=DEFAULT_LAYER_RATIOS
+    )
     args = parser.parse_args()
 
-    prune_yolo_model(args.model, args.ratio, args.output, args.dry_run)
+    prune_yolo_model(
+        args.model,
+        args.ratio,
+        args.output,
+        args.dry_run,
+        args.scoring,
+        args.layer_ratios,
+    )
 
 
 if __name__ == "__main__":
