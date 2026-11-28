@@ -18,6 +18,7 @@ from pathlib import Path
 
 import torch
 from ultralytics import YOLO
+from ultralytics.models.yolo.detect import DetectionTrainer
 from ultralytics.utils import YAML
 from ultralytics.utils.checks import check_yaml
 from huggingface_hub import hf_hub_download
@@ -138,22 +139,36 @@ print(f"Sanity check passed: mAP50 {sanity_map50:.4f} on {SANITY_DATA}")
 # ## 4. Fine-tune
 
 # %%
-model.train(
-    data=str(COCO_YAML),
-    epochs=EPOCHS,
-    imgsz=IMAGE_SIZE,
-    batch=BATCH,
-    device=DEVICE,
-    workers=WORKERS,
-    lr0=LR0,
-    lrf=LRF,
-    warmup_epochs=WARMUP_EPOCHS,
-    patience=PATIENCE,
-    amp=AMP,
-    project=str(RUN_PROJECT),
-    name=RUN_NAME,
-    exist_ok=True,
+trainer = DetectionTrainer(
+    overrides={
+        "model": model_path,
+        "data": str(COCO_YAML),
+        "epochs": EPOCHS,
+        "imgsz": IMAGE_SIZE,
+        "batch": BATCH,
+        "device": DEVICE,
+        "workers": WORKERS,
+        "lr0": LR0,
+        "lrf": LRF,
+        "warmup_epochs": WARMUP_EPOCHS,
+        "patience": PATIENCE,
+        "amp": AMP,
+        "project": str(RUN_PROJECT),
+        "name": RUN_NAME,
+        "exist_ok": True,
+    }
 )
+expected_params = sum(p.numel() for p in model.model.parameters())
+model.model.requires_grad_(True)
+trainer.model = model.model
+trainer.setup_model()
+actual_params = sum(p.numel() for p in trainer.model.parameters())
+if actual_params != expected_params:
+    raise RuntimeError(
+        f"Trainer rebuilt the model from model.yaml: {actual_params:,} parameters, "
+        f"expected the pruned {expected_params:,}"
+    )
+trainer.train()
 
 # %% [markdown]
 # ## 5. Save and verify

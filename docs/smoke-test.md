@@ -56,6 +56,14 @@ trainer.train()
 
 Verified at setup: the trainer keeps a `DetectionModel` with 2,332,312 parameters.
 
+## Progress
+
+- Step 1 (trainer bypass) implemented in `src/fine_tuning.py` and `src/fine_tuning_smoke.py`.
+- Step 2 (parameter-count guard) implemented: both scripts assert the trainer kept the loaded pruned model.
+- Step 3 (1-epoch coco8 check) passed on CPU: the trainer kept 2,332,312 parameters, training completed, and `best.pt` validated as 2,180,062 fused parameters.
+- Steps 4-7 still require the Colab/Kaggle GPU runs.
+- Note: pretrained Ultralytics checkpoints load with `requires_grad=False` (`yolo26n.pt` is 0/366); the scripts now call `requires_grad_(True)` before training to avoid the trainer re-enabling every layer with a warning.
+
 ## Plan
 
 1. Replace `model.train(...)` with the `DetectionTrainer` bypass in `src/fine_tuning.py` and `src/fine_tuning_smoke.py`.
